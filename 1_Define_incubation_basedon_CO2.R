@@ -68,7 +68,7 @@ main.Licor1 <- click.peak_custom_CO2CH4(
   gastype = "CO2dry_ppm",
   sleep = 3,
   plot.lim = c(200, 5000),
-  seq = 1:4,
+  seq = 1:20,
   warn.length = 60,
   save.plots = NULL
 )
