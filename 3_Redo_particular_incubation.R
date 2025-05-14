@@ -1,74 +1,78 @@
-#Library
-library(tidyverse)
-library(goFlux)
-library(hms)
+#N2O
+#library----
+  library(goFlux)
+  library(tidyverse)
+  #Custom function to plot incubation start and end vertical lines, and CO2 and CH4 concentration at the same time
+  source("https://raw.githubusercontent.com/JorgeMonPe/Functions_goflux_custom/refs/heads/main/my_functions_CO2CH4.R")
 
-#Set the default timezone to UTC
+#Set TZ the default timezone to UTC----
 Sys.setenv(TZ = "UTC")
 
-#Licor
-import2RData(path = "rawdata_N2O", instrument = "LI-7820",
-             date.format = "ymd", keep_all = F,
-             prec = c(0.4, 45))
-load("RData/LI7820_TG20-01377-2025-05-06T000000_imp.RData")
-Licor <- data.raw
+#Set working directory----
+folder_root <- "/home/jorge/Documentos/Postdoctoral/Onedrive_UB/UB/Tordera/2025_05_MAY" # Make sure this is the folder where you have information (rawdata and auxfile) for the campaign you want to analyse
+setwd(folder_root)
+
+#Import CO2 observational windows
+ow.Licor <- readRDS("Outputs/ow.Licor7810.RDS")
+#Import original selection----
+  old <- read_csv("Outputs/main.Licor_CO2.csv", col_types = cols(Species = col_character()))
+  old <- old %>% mutate(DATE = as.character(DATE),
+                        TIME = as.character(TIME))
+
+#Now we redo just the incubation identified as "strange"----
+#The position is not the same that the plot number (there is one repeated) so I have to extract the positions in the list.
+  IDs <- do.call(rbind, ow.Licor) %>% summarise(UniqueID = unique(UniqueID))
+  reanalyse_name <-c("Q3.6_50_May")
+  reanalyse <- which(IDs$UniqueID %in% reanalyse_name)
+#clic
+options(device = "x11") #Just for LINUX - I have to do this, if not, no windows will pop up to show you the plot where select the start and the end of the incubation
+main.Licor1 <- click.peak_custom_CO2CH4(
+  ow.Licor,
+  gastype = "CO2dry_ppm",
+  sleep = 3,
+  plot.lim = c(200, 5000),#c(200, 1000) para CO2 c(1900, 80000) para CH4
+  seq = reanalyse,
+  warn.length = 60,
+  save.plots = NULL
+)
+
+#Now, replace the newone in the old file
+main.Licor <- old %>% filter(!UniqueID %in% c(reanalyse_name))  %>% bind_rows(main.Licor1)
+
+#Calculate the flux----
+##CO2----
+CO2 <- goFlux(main.Licor, "CO2dry_ppm")
+CO2_best <- best.flux(CO2, criteria = c("MAE", "AICc", "g.factor", "MDF"), g.limit = 4)
+##Save files----
+#CO2
+write_csv(CO2_best, "Outputs/CO2_flux_best_redone.csv")
+write_csv(CO2, "Outputs/CO2_flux_redone.csv")
+write_csv(main.Licor, "Outputs/main.Licor_CO2_redone.csv")
+##Save plots----
+#CO2
+CO2_plots <- flux.plot(CO2_best, main.Licor, "CO2dry_ppm", shoulder=20,
+                       plot.legend = c("MAE", "RMSE", "AICc", "k.ratio", "g.factor"), 
+                       plot.display = c("MDF", "prec", "nb.obs", "flux.term"), 
+                       quality.check = TRUE)
 
 
-##------Enees----------
-  #Import auxfile-----
-  auxfile <- read_delim("auxfile/aux_may.csv", delim = ";")
-  auxfile <- auxfile %>% mutate(start.time = as.POSIXct(start.time, format = "%d/%m/%Y %H:%M", tz = "UTC"))
-  auxfile <- auxfile %>% mutate(start.time = start.time-158)
-  
-  #Define end and start
-  ow.Licor <- obs.win(Licor, auxfile, gastype = "N2Odry_ppb", obs.length = 300, shoulder = 180)
-  ow.Licor <- ow.Licor %>% bind_rows() %>% 
-    mutate(DATE = as.Date(DATE),
-           TIME.x = as_hms(TIME))
-  
-  #Import Picarro 
-  #Import main CO2 for Enees
-  main.Licor_CO2 <- read_csv("Outputs/main.Licor_may_CO2.csv")
-  
-  
-  ow.Licor_filter <- ow.Licor %>%  select(any_of(c(colnames(main.Licor_CO2),"N2Odry_ppb","N2O_prec")))
-  
-  main.Picarro_selection <- main.Licor_CO2 %>% group_by(UniqueID) %>% slice_head(n = 1) %>% select(UniqueID, start.time_corr, end.time_corr) %>% 
-    mutate(start.time_corr = start.time_corr-158, 
-           end.time_corr = end.time_corr-158,
-           obs.length_corr = as.numeric(end.time_corr - 
-                                          start.time_corr, units = "secs"))
-  #if I have enough points I will remove 10 secs at the begining and at the end
-  main.Picarro_selection <- main.Picarro_selection %>% mutate(start.time_corr = case_when(obs.length_corr >= 180 ~  start.time_corr+10,
-                                                                TRUE ~ start.time_corr),
-                                    end.time_corr = case_when(obs.length_corr >= 180 ~ end.time_corr-10,
-                                                              TRUE ~ end.time_corr))
-  
-  main.Licor <- ow.Licor_filter %>% left_join(main.Picarro_selection) %>% 
-    mutate(flag = case_when(between(POSIX.time, start.time_corr, end.time_corr) ~ 1,
-                            TRUE ~ 0),
-           Etime = as.numeric(POSIX.time - start.time_corr))
-  
-  #Let's calculate the flux
-  #NO2
-  N2O <- goFlux(main.Licor, "N2Odry_ppb")
-  N2O_best <- best.flux(N2O, criteria = c("MAE", "AICc", "g.factor", "MDF"), g.limit = 4)
-  #When R2 is lower than 0.99 in HM flux, then I select LM
-  N2O_best <- N2O_best %>% mutate(best.flux = case_when(HM.r2 < 0.99 ~ LM.flux,
-                                                        TRUE ~ best.flux),
-                                  model = case_when(HM.r2 < 0.99 ~ "LM",
-                                                    TRUE ~ model),
-                                  quality.check = case_when(HM.r2 < 0.99 ~ paste(quality.check, "lowR2", sep = " | "),
-                                                            TRUE ~ quality.check))
-  N2O_plots <- flux.plot(N2O_best, main.Licor, "N2Odry_ppb", shoulder=20,
-                         plot.legend = c("MAE", "RMSE", "AICc", "k.ratio", "g.factor"), 
-                         plot.display = c("MDF", "prec", "nb.obs", "flux.term"), 
-                         quality.check = TRUE)
-  
-  flux2pdf(N2O_plots, outfile = "Plots/May_N2O_1_45_CO2_selection.pdf")
-  
-  #Save files
-  write_csv(N2O_best, "Outputs/N2O_bests_CO2_selection.csv")
-  write_csv(N2O, "Outputs/N2O_CO2_selection.csv")
-  write_csv(main.Licor, "Outputs/main.Licor_CO2_selection.csv")
-  
+flux2pdf(CO2_plots, outfile = "Plots/CO2_plots_redone.pdf")
+
+##CH4----
+CH4 <- goFlux(main.Licor, "CH4dry_ppb")
+CH4_best <- best.flux(CH4, criteria = c("MAE", "AICc", "g.factor", "MDF"), g.limit = 4)
+
+##Save files----
+#CH4
+write_csv(CH4_best, "Outputs/CH4_fux_best_redone.csv")
+write_csv(CH4, "Outputs/CH4_flux_redone.csv")
+write_csv(main.Picarro, "Outputs/main.Licor_CH4_redone.csv")
+##Save plots----
+#CH4
+CH4_plots <- flux.plot(CH4_best, main.Licor, "CH4dry_ppb", shoulder=20,
+                       plot.legend = c("MAE", "RMSE", "AICc", "k.ratio", "g.factor"), 
+                       plot.display = c("MDF", "prec", "nb.obs", "flux.term"), 
+                       quality.check = TRUE)
+
+
+flux2pdf(CH4_plots, outfile = "Plots/CH4_flux_redone.pdf")
