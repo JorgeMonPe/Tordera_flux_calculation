@@ -30,3 +30,26 @@ This project is structured to process incubation data from Licor gas analyzers (
 
 3. **3_edit_selected_incubations.R**
    - Use this script to manually adjust or correct specific incubations that require further modification after the initial selection.
+
+## Setup Instructions:
+
+To use this workflow, follow these steps:
+  
+  1. **Download the repository:**
+  - It is recommended to clone the repository using SSH.
+
+  - Alternatively, you can download the repository manually as a ZIP file from GitHub and extract it into a folder on your computer.
+
+2. **Software Requirements:**
+  - You need to have **RStudio** and **Git** installed on your computer. 
+- A **GitHub account** is required if you want to clone the repository using SSH or push changes directly from Rstudio.
+
+**For more information on how to connect and work with RStudio and GitHub, you can visit the following link:
+
+[Happy Git with R - RStudio, Git, and GitHub](https://happygitwithr.com/rstudio-git-github.html)
+
+3. **Set the working directory:**
+  - Define the path to your working directory by setting the variable `folder_root` in the scripts. This directory should contain the data and auxfile for the specific campaign you are analyzing.
+- To analyze data from different campaigns, simply change the `folder_root` path to point to the folder where the data for the new campaign is stored.
+
+By setting `folder_root`, you make the workflow adaptable to different data campaigns, and it simplifies the process of switching between projects.
